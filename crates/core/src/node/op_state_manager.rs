@@ -201,6 +201,38 @@ impl SubOperationTracker {
     }
 }
 
+/// The kind of network operation registered with the durable operation task.
+#[derive(Debug, Clone)]
+pub(crate) enum DurableOpKind {
+    /// Issue a GET for the given contract.
+    Get { fetch_contract: bool },
+    /// Issue a SUBSCRIBE for the given contract.
+    Subscribe { is_renewal: bool },
+}
+
+/// Message sent to [`crate::node::maintenance::durable_operation_task`] to manage
+/// must-complete GET/SUBSCRIBE operations with retry-until-success semantics.
+///
+/// Use [`OpManager::enqueue_durable_op`] to send these from any subsystem.
+#[derive(Debug)]
+pub(crate) enum DurableOpRequest {
+    /// Register a new operation to track until success or exhaustion.
+    Register {
+        instance_id: ContractInstanceId,
+        kind: DurableOpKind,
+        /// Fallback operation to attempt after the primary kind is exhausted.
+        fallback: Option<DurableOpKind>,
+    },
+    /// Cancel tracking for a previously registered operation.
+    Cancel {
+        instance_id: ContractInstanceId,
+    },
+    /// Signal successful completion — removes the operation from tracking.
+    Complete {
+        instance_id: ContractInstanceId,
+    },
+}
+
 #[derive(Default)]
 struct Ops {
     connect: DashMap<Transaction, crate::operations::connect::ConnectOp>,
@@ -278,6 +310,10 @@ pub(crate) struct OpManager {
     /// Maps contract instance ID to the timestamp (ms since epoch via GlobalSimulationTime)
     /// when the fetch was initiated, with a cooldown to avoid repeated fetch attempts.
     pub(crate) pending_contract_fetches: Arc<DashMap<ContractInstanceId, u64>>,
+    /// Channel for registering durable operations that need retry-until-complete guarantees.
+    /// Initialized lazily after construction via [`Self::set_durable_op_sender`]
+    /// (same pattern as `request_router`). Set from [`NodeP2P::build`].
+    durable_op_sender: Arc<OnceLock<mpsc::Sender<DurableOpRequest>>>,
 }
 
 impl Clone for OpManager {
@@ -305,6 +341,7 @@ impl Clone for OpManager {
             blocked_addresses: self.blocked_addresses.clone(),
             configured_gateways: self.configured_gateways.clone(),
             pending_contract_fetches: self.pending_contract_fetches.clone(),
+            durable_op_sender: self.durable_op_sender.clone(),
         }
     }
 }
@@ -430,7 +467,31 @@ impl OpManager {
                     .collect(),
             ),
             pending_contract_fetches,
+            durable_op_sender: Arc::new(OnceLock::new()),
         })
+    }
+
+    /// Store the durable operation sender created alongside
+    /// [`crate::node::maintenance::durable_operation_task`].
+    ///
+    /// Called once from [`NodeP2P::build`] after construction. Subsequent calls
+    /// are silently ignored (same pattern as [`Self::set_request_router`]).
+    pub fn set_durable_op_sender(&self, tx: mpsc::Sender<DurableOpRequest>) {
+        if self.durable_op_sender.set(tx).is_err() {
+            tracing::warn!("Durable op sender already set — ignoring duplicate set");
+        }
+    }
+
+    /// Enqueue a durable operation for retry-until-complete processing.
+    ///
+    /// Uses `try_send` to avoid blocking callers. If the channel is full or closed
+    /// the request is dropped and a warning is logged.
+    pub fn enqueue_durable_op(&self, req: DurableOpRequest) {
+        if let Some(tx) = self.durable_op_sender.get() {
+            if let Err(e) = tx.try_send(req) {
+                tracing::warn!(error = %e, "Failed to enqueue durable op (channel full or closed)");
+            }
+        }
     }
 
     /// Set the request router for cleaning up stale entries when operations complete.

@@ -66,6 +66,7 @@ serde_json = { workspace = true }
 socket2 = { workspace = true }
 toml = { workspace = true }
 serde_with = { workspace = true }
+humantime-serde = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "sqlite"], optional = true }
 moka = { workspace = true }
 tar = { workspace = true }
@@ -81,6 +82,100 @@ xz2 = { workspace = true }
 reqwest = { workspace = true }
 x25519-dalek = { workspace = true }
 sha2 = { workspace = true }
+
+# Phase 1 security and authentication dependencies
+x509-parser = { workspace = true, optional = true }
+ring = { workspace = true, optional = true }
+jsonwebtoken = { workspace = true, optional = true }
+oauth2 = { workspace = true, optional = true }
+
+# Phase 1 monitoring and metrics dependencies
+prometheus = { workspace = true, optional = true }
+metrics = { workspace = true, optional = true }
+opentelemetry-prometheus = { workspace = true, optional = true }
+
+# Phase 3 preparation - Multi-protocol APIs and plugins
+tonic = { workspace = true, optional = true }
+prost = { workspace = true, optional = true }
+async-graphql = { workspace = true, optional = true }
+async-graphql-axum = { workspace = true, optional = true }
+libloading = { workspace = true, optional = true }
+wasmtime-wasi = { workspace = true, optional = true }
+cap-std = { workspace = true, optional = true }
+
+# Phase 1: AI/ML Infrastructure
+candle-core = { workspace = true, optional = true }
+candle-nn = { workspace = true, optional = true }
+# candle-optimizers = { workspace = true, optional = true }  # Not available on crates.io
+ort = { workspace = true, optional = true }
+ndarray = { workspace = true, optional = true }
+polars = { workspace = true, optional = true }
+
+# Phase 1: Post-Quantum Cryptography
+ml-kem = { workspace = true, optional = true }
+dilithium = { workspace = true, optional = true }
+
+# Phase 1+: Enhanced Post-Quantum & Threshold Cryptography
+libcrux = { workspace = true, optional = true }
+# shamir-secret-sharing not available on crates.io
+frost-secp256k1 = { workspace = true, optional = true }
+# swanky not available on crates.io
+
+# Phase 1+: Asynchronous Byzantine Fault Tolerance
+hbbft = { workspace = true, optional = true }
+# bft-rs = { workspace = true, optional = true }  # Not available on crates.io
+
+# Phase 1: Performance Optimization
+io-uring = { workspace = true, optional = true }
+# portable_simd not available on crates.io (nightly std::simd)
+mimalloc = { workspace = true, optional = true }
+
+# Phase 2: Zero-Knowledge Proofs
+ark-groth16 = { workspace = true, optional = true }
+ark-bls12-381 = { workspace = true, optional = true }
+halo2_proofs = { workspace = true, optional = true }
+
+# Phase 2: Modern Networking
+quinn = { workspace = true, optional = true }
+h3 = { workspace = true, optional = true }
+web-transport = { workspace = true, optional = true }
+
+# Phase 2: Homomorphic Encryption
+tfhe = { workspace = true, optional = true }
+concrete = { workspace = true, optional = true }
+
+# Phase 3: Browser Integration
+# webrtc conflicts with ureq→rustls subtle version requirements
+wasm-bindgen = { workspace = true, optional = true }
+
+# Phase 2+: Enhanced Zero-Knowledge & Privacy
+plonky2 = { workspace = true, optional = true }
+# differential-privacy = { workspace = true, optional = true }  # Not available
+
+# Phase 2+: Federated Learning & Advanced ML
+# rustfl not available on crates.io
+graph-algorithms = { workspace = true, optional = true }
+
+# Phase 2+: Verifiable Delay Functions
+# vdf-poa not available on crates.io
+# wesolowski-vdf not available on crates.io
+
+# Phase 3: Distributed Systems
+raft = { workspace = true, optional = true }
+consistent_hash = { workspace = true, optional = true }
+
+# Phase 3+: Enhanced Distributed Systems
+chord-dht = { workspace = true, optional = true }
+
+# Phase 3+: GPU Acceleration & Hardware Optimization
+cudarc = { workspace = true, optional = true }
+gpu-allocator = { workspace = true, optional = true }
+# wgpu-compute not available on crates.io
+
+# Phase 3+: Experimental Research Technologies
+neuromorphic-drivers = { workspace = true, optional = true }
+# particle-swarm = { workspace = true, optional = true }  # Not available
+# tpm-rs not available on crates.io
 
 # Tracing deps
 opentelemetry = { workspace = true }
@@ -175,6 +270,8 @@ chrono = { workspace = true }
 
 [features]
 default = ["redb", "trace", "websocket", "wasmtime-backend"]
+
+# Existing core features
 sqlite = ["sqlx"]
 trace = ["tracing-subscriber", "tracing-appender"]
 trace-ot = ["opentelemetry-jaeger", "trace", "tracing-opentelemetry", "opentelemetry-otlp"]
@@ -184,15 +281,80 @@ console-subscriber = ["dep:console-subscriber"]
 test-network = ["dep:freenet-test-network"]
 bench = []  # Exposes internal test infrastructure for benchmarking
 bench_full = []  # Enables full benchmark suite (slow, ~78 min)
-# Feature to enable simulation integration tests (run separately with --test-threads=1)
-simulation_tests = []
-# Feature to enable nightly-only tests (long-running, resource-intensive)
-nightly_tests = []
-# jemalloc heap profiling (unix only). Adds profiling support on top of the always-enabled jemalloc allocator.
-# Enable with MALLOC_CONF="prof:true,lg_prof_sample:19" and send SIGUSR1 to dump heap profiles.
-jemalloc-prof = ["tikv-jemallocator/profiling", "dep:tikv-jemalloc-ctl"]
-# WASM runtime backend
-wasmtime-backend = ["dep:wasmtime"]
+simulation_tests = []  # Simulation integration tests (run separately with --test-threads=1)
+nightly_tests = []  # Nightly-only tests (long-running, resource-intensive)
+jemalloc-prof = ["tikv-jemallocator/profiling", "dep:tikv-jemalloc-ctl"]  # jemalloc heap profiling (unix only)
+wasmtime-backend = ["dep:wasmtime"]  # WASM runtime backend
+
+# Phase 1: Foundation & High-Impact Enhancements
+ml-routing = ["candle-core", "candle-nn", "ort", "ndarray", "polars"]
+rl-congestion = ["candle-core", "ndarray"]
+post-quantum = ["ml-kem", "dilithium"]
+performance-opt = ["io-uring", "mimalloc"]
+
+# Phase 1+ Enhanced Foundation (Tier 1: High Impact + Available)
+quantum-safe = ["ml-kem", "dilithium", "libcrux"]
+homomorphic-contracts = ["tfhe", "concrete"]
+threshold-consensus = ["frost-secp256k1"]  # shamir-secret-sharing and swanky not on crates.io
+bft-async = ["hbbft"]
+
+# Phase 2: Advanced Capabilities
+zk-privacy = ["ark-groth16", "ark-bls12-381", "halo2_proofs"]
+modern-protocols = ["quinn", "h3", "web-transport"]
+homomorphic = ["tfhe", "concrete"]
+multi-protocol-api = ["tonic", "prost", "async-graphql"]
+
+# Phase 2+ Advanced ML & Privacy (Tier 2: High Impact + Maturing)
+federated-ml = []  # rustfl not available on crates.io
+gnn-topology = ["graph-algorithms"]
+vdf-fairness = []  # vdf-poa and wesolowski-vdf not on crates.io
+enhanced-zkp = ["ark-groth16", "ark-bls12-381", "halo2_proofs", "plonky2"]
+modern-protocols-plus = ["quinn", "h3", "web-transport", "tonic"]
+
+# Phase 3: Platform Extensions
+plugins = ["wasmtime-wasi", "libloading", "cap-std"]
+browser-integration = ["wasm-bindgen"]  # webrtc removed (subtle version conflict)
+distributed-consensus = ["raft", "consistent_hash"]
+
+# Phase 3+ Experimental Platform (Tier 3: Experimental + Specialized)
+gpu-acceleration = ["cudarc", "gpu-allocator"]  # wgpu-compute not on crates.io
+privacy-gossip = []  # Disabled - differential-privacy not available
+enhanced-plugins = ["wasmtime-wasi", "libloading", "cap-std"]
+advanced-networking = ["raft", "consistent_hash", "chord-dht"]
+browser-integration-plus = ["wasm-bindgen"]  # webrtc removed (subtle version conflict)
+
+# Experimental Cutting-Edge (Research Phase)
+neuromorphic = ["neuromorphic-drivers"]
+swarm-intelligence = []  # Disabled - dependencies not available
+hardware-security = []  # tpm-rs not on crates.io
+
+# Enhanced Meta-Features Hierarchy
+quantum-crypto = ["quantum-safe", "homomorphic-contracts"]
+mpc-consensus = ["threshold-consensus", "bft-async"]
+advanced-ml = ["federated-ml", "gnn-topology"]
+privacy-platform = ["enhanced-zkp", "privacy-gossip", "quantum-crypto"]
+
+# Meta-features for easy enablement (Legacy Compatibility)
+cutting-edge = ["ml-routing", "rl-congestion", "post-quantum", "performance-opt"]
+bleeding-edge = ["cutting-edge", "zk-privacy", "modern-protocols", "homomorphic"]
+full-platform = ["bleeding-edge", "plugins", "browser-integration", "distributed-consensus"]
+
+# Enhanced Tier-Based Enablement (Ultra-Cutting-Edge)
+ultra-cutting-edge = ["cutting-edge", "quantum-crypto", "mpc-consensus"]
+bleeding-edge-max = ["ultra-cutting-edge", "advanced-ml", "vdf-fairness", "modern-protocols-plus"]
+experimental-platform = ["bleeding-edge-max", "gpu-acceleration", "privacy-platform"]
+research-frontier = ["experimental-platform", "neuromorphic", "swarm-intelligence", "hardware-security"]
+
+# Existing legacy features
+admin-api = ["prometheus", "metrics", "opentelemetry-prometheus"]
+security = ["x509-parser", "ring", "jsonwebtoken", "oauth2"]
+enterprise = ["admin-api", "security"]
+grpc-api = ["tonic", "prost"]
+graphql-api = ["async-graphql", "async-graphql-axum"]
+
+# Phase 1 enhancement features (duplicates removed - keeping original definitions above)
+
+# Phase 3 preparation features already defined above
 
 # ==============================================================================
 # Lint Configuration

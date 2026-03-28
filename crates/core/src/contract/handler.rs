@@ -603,6 +603,10 @@ pub(crate) enum ContractHandlerEvent {
     DelegateRequest {
         req: DelegateRequest<'static>,
         origin_contract: Option<ContractInstanceId>,
+        /// Client that initiated this delegate request (for app subscriber registration).
+        client_id: Option<ClientId>,
+        /// Notification channel for routing delegate ApplicationMessages to the client.
+        notification_channel: Option<tokio::sync::mpsc::Sender<HostResult>>,
     },
     DelegateResponse(Vec<OutboundDelegateMsg>),
     /// Try to push/put a new value into the contract
@@ -698,6 +702,7 @@ impl std::fmt::Display for ContractHandlerEvent {
             ContractHandlerEvent::DelegateRequest {
                 req,
                 origin_contract,
+                ..
             } => {
                 write!(
                     f,

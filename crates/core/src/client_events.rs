@@ -30,7 +30,7 @@ use crate::{
     contract::StoreResponse,
 };
 
-// pub(crate) mod admin_endpoints; // TODO: Add axum dependencies
+pub(crate) mod admin_endpoints;
 pub(crate) mod combinator;
 #[cfg(test)]
 mod integration_verification;
@@ -179,6 +179,9 @@ pub struct OpenRequest<'a> {
     pub notification_channel: Option<mpsc::Sender<HostResult>>,
     pub token: Option<AuthToken>,
     pub origin_contract: Option<ContractInstanceId>,
+    /// Security context for this request. `None` in permissive/legacy mode
+    /// where no security middleware is configured.
+    pub security_context: Option<crate::authz::SecurityContext>,
 }
 
 impl Display for OpenRequest<'_> {
@@ -207,6 +210,7 @@ impl<'a> OpenRequest<'a> {
             notification_channel: None,
             token: None,
             origin_contract: None,
+            security_context: None,
         }
     }
 
@@ -222,6 +226,11 @@ impl<'a> OpenRequest<'a> {
 
     pub fn with_origin_contract(mut self, contract: Option<ContractInstanceId>) -> Self {
         self.origin_contract = contract;
+        self
+    }
+
+    pub fn with_security_context(mut self, ctx: Option<crate::authz::SecurityContext>) -> Self {
+        self.security_context = ctx;
         self
     }
 }
@@ -1804,10 +1813,24 @@ async fn process_open_request(
                 let delegate_key = req.key().clone();
                 let origin_contract = request.origin_contract;
 
+                // For RegisterDelegate, create a notification channel so the
+                // contract handler can register this client as an app subscriber
+                // for push notifications from the delegate.
+                let delegate_notification_ch = if matches!(
+                    &req,
+                    freenet_stdlib::client_api::DelegateRequest::RegisterDelegate { .. }
+                ) {
+                    subscription_listener.clone()
+                } else {
+                    None
+                };
+
                 let res = match op_manager
                     .notify_contract_handler(ContractHandlerEvent::DelegateRequest {
                         req,
                         origin_contract,
+                        client_id: Some(client_id),
+                        notification_channel: delegate_notification_ch,
                     })
                     .await
                 {
@@ -2152,6 +2175,7 @@ pub(crate) mod test {
                 notification_channel,
                 token: None,
                 origin_contract: None,
+                security_context: None,
             }
             .into_owned()
         }

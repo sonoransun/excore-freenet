@@ -43,6 +43,12 @@ tokio-stream = "0.1.18"
 tokio-tungstenite = "0.27.0"
 tower-http = { version = "0.6", features = ["fs", "trace"] }
 
+# Multi-protocol APIs (Phase 3 preparation)
+tonic = "0.12"
+prost = "0.13"
+async-graphql = "7"
+async-graphql-axum = "7"
+
 # Crypto
 aes-gcm = "0.10"
 blake3 = { version = "1", features = ["std", "traits-preview"] }
@@ -50,6 +56,12 @@ bs58 = "0.5"
 chacha20poly1305 = "0.10"
 sha2 = "0.10"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
+
+# Security and authentication (Phase 1)
+x509-parser = "0.16"
+ring = "0.17"
+jsonwebtoken = "9"
+oauth2 = "4"
 
 # Data structures/storage
 crossbeam = "0.8"
@@ -74,6 +86,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_with = "3"
 toml = "1.0"
+humantime-serde = "1.1"
 
 # CLI
 clap = "4"
@@ -95,6 +108,11 @@ tracing-appender = "0.2"
 tracing-opentelemetry = "0.32.1"
 tracing-subscriber = "0.3"
 console-subscriber = "0.5.0"
+
+# Metrics and monitoring (Phase 1)
+prometheus = "0.13"
+metrics = "0.22"
+opentelemetry-prometheus = "0.15"
 
 # WASM
 wasmtime = { version = "43", features = ["cache"] }
@@ -125,6 +143,80 @@ quote = "1.0"
 syn = { version = "2.0", features = ["full", "extra-traits", "parsing"] }
 trybuild = "1.0"
 
+# AI/ML Infrastructure (Phase 1)
+candle-core = "0.6"
+candle-nn = "0.6"
+# candle-optimizers = "0.6"  # Not available on crates.io
+ort = "2.0.0-rc.12"
+ndarray = "0.16"
+polars = { version = "0.41", features = ["lazy", "temporal", "strings"] }
+
+# Post-Quantum Cryptography (Phase 1)
+ml-kem = "0.3.0-rc.0"
+dilithium = "0.2.0-alpha.3"
+
+# Enhanced Post-Quantum & Threshold Cryptography (Phase 1+)
+libcrux = "0.0.3"                    # Formally verified crypto implementations
+# shamir-secret-sharing = "2.1"  # Not available on crates.io (use shamir_secret_sharing)
+frost-secp256k1 = "1.0"           # Threshold Schnorr signatures
+# swanky = "0.12"  # Not available on crates.io (MPC framework)
+
+# Asynchronous Byzantine Fault Tolerance (Phase 1+)
+hbbft = "0.1"                    # Honey Badger BFT
+# bft-rs = "0.1"                    # Efficient BFT library (not available on crates.io)
+
+# Performance Optimization (Phase 1)
+io-uring = "0.6"
+# portable_simd = "0.3"  # Not available on crates.io
+mimalloc = "0.1"
+
+# Zero-Knowledge Proofs (Phase 2)
+ark-groth16 = "0.5"
+ark-bls12-381 = "0.5"
+halo2_proofs = "0.3"
+
+# Enhanced Zero-Knowledge & Privacy (Phase 2+)
+plonky2 = "1.1"                   # High-performance recursive proofs
+# differential-privacy = "0.3"  # Not available on crates.io      # DP mechanisms
+
+# Federated Learning & Advanced ML (Phase 2+)
+# rustfl = "0.2"  # Not available on crates.io (use RustFL = "0.3" when needed)
+graph-algorithms = "0.1"         # Graph processing utilities
+
+# Verifiable Delay Functions (Phase 2+)
+# vdf-poa = "0.3"  # Not available on crates.io
+# wesolowski-vdf = "0.2"  # Not available on crates.io
+
+# Modern Networking (Phase 2)
+quinn = "0.11"
+h3 = "0.0.6"
+web-transport = "0.1"
+
+# Homomorphic Encryption (Phase 2)
+tfhe = "0.8"
+concrete = "2.11"
+
+# Browser Integration (Phase 3)
+# webrtc = "0.7"  # Conflicts with ureq→rustls→subtle ^2.5; upgrade to webrtc 0.12+ when needed
+wasm-bindgen = "0.2"
+
+# Distributed Systems (Phase 3)
+raft = "0.7"
+consistent_hash = "0.1"
+
+# Enhanced Distributed Systems (Phase 3+)
+chord-dht = "0.1"                 # Hierarchical DHT implementation
+
+# GPU Acceleration & Hardware Optimization (Phase 3+)
+cudarc = "0.12"                   # Rust CUDA bindings
+gpu-allocator = "0.26"            # GPU memory management
+# wgpu-compute = "22"  # Not available on crates.io
+
+# Experimental Research Technologies (Phase 3+)
+neuromorphic-drivers = "0.1"      # Spiking neural networks
+# particle-swarm = "0.2"  # Not available on crates.io            # PSO for topology optimization
+# tpm-rs = "0.4"  # Not available on crates.io (use tss-esapi instead)
+
 # Platform-specific
 libc = "0.2"
 tikv-jemallocator = { version = "0.6", features = ["unprefixed_malloc_on_supported_platforms"] }
@@ -132,6 +224,11 @@ tikv-jemalloc-ctl = { version = "0.6", features = ["stats"] }
 gag = "1"
 winapi = "0.3"
 zip = { version = "8", default-features = false, features = ["deflate", "time"] }
+
+# Plugin system (Phase 3 preparation)
+libloading = "0.8"
+wasmtime-wasi = "43"
+cap-std = "3"
 
 # Freenet
 freenet-stdlib = "0.3.5"

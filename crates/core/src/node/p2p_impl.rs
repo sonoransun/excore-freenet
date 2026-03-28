@@ -26,7 +26,7 @@ use crate::{
     operations::connect,
 };
 
-use super::{background_task_monitor::BackgroundTaskMonitor, OpManager};
+use super::{background_task_monitor::BackgroundTaskMonitor, maintenance, OpManager};
 
 pub(crate) struct NodeP2P {
     pub(crate) op_manager: Arc<OpManager>,
@@ -357,6 +357,39 @@ impl NodeP2P {
             &background_task_monitor,
         )?);
         op_manager.ring.attach_op_manager(&op_manager);
+
+        // Spawn background maintenance tasks (seeding, verification, durable ops).
+        {
+            let maintenance_config = config.config.maintenance.clone();
+            if maintenance_config.enabled {
+                let (durable_tx, durable_rx) =
+                    tokio::sync::mpsc::channel(256);
+                op_manager.set_durable_op_sender(durable_tx);
+
+                background_task_monitor.register(
+                    "contract_seeding",
+                    GlobalExecutor::spawn(maintenance::seeding_task(
+                        op_manager.clone(),
+                        maintenance_config.clone(),
+                    )),
+                );
+                background_task_monitor.register(
+                    "storage_verification",
+                    GlobalExecutor::spawn(maintenance::storage_verification_task(
+                        op_manager.clone(),
+                        maintenance_config.clone(),
+                    )),
+                );
+                background_task_monitor.register(
+                    "durable_operations",
+                    GlobalExecutor::spawn(maintenance::durable_operation_task(
+                        op_manager.clone(),
+                        durable_rx,
+                        maintenance_config.max_durable_retries,
+                    )),
+                );
+            }
+        }
 
         // Create channels for the mediator pattern:
         // - op_request_channel: executors send (Transaction, oneshot::Sender) to mediator

@@ -1,0 +1,208 @@
+# Freenet Core Enterprise Configuration Template
+# This file demonstrates all the new Phase 1 features and their configuration options
+
+[network-api]
+address = "0.0.0.0:7800"
+public-address = "auto"  # Auto-detect or specify external address
+bandwidth-limit = 3_000_000
+total-bandwidth-limit = 30_000_000
+min-connections = 25
+max-connections = 200
+streaming-threshold = 65536
+congestion-control = "fixedrate"  # fixedrate, ledbat, bbr
+
+[websocket-api]
+address = "127.0.0.1"
+port = 7509
+token-ttl-seconds = 3600
+
+# NEW: Admin API Configuration (Phase 1)
+[admin-api]
+enabled = true
+address = "127.0.0.1"
+port = 7510
+# Authentication for admin endpoints
+auth-required = true
+api-keys = [
+    # Generate with: openssl rand -base64 32
+    "admin:dGVzdC1hZG1pbi1rZXktcGxlYXNlLWNoYW5nZS10aGlzLWluLXByb2R1Y3Rpb24="
+]
+# IP allowlist for admin access
+allowed-ips = ["127.0.0.1", "::1"]
+# CORS settings for dashboard
+cors-origins = ["http://localhost:3000", "https://dashboard.company.com"]
+
+# Health check configuration
+[admin-api.health]
+network-min-peers = 3      # Minimum peers for healthy status
+storage-max-usage = 0.9    # Max storage usage (90%)
+memory-max-usage = 0.95    # Max memory usage (95%)
+
+# Metrics export configuration
+[admin-api.metrics]
+prometheus-enabled = true
+prometheus-path = "/metrics"
+# Export interval for expensive metrics (seconds)
+collection-interval = 30
+# Include detailed per-peer metrics (can be high cardinality)
+detailed-peer-metrics = false
+
+# NEW: Security Configuration (Phase 1)
+[security]
+# Global security settings
+enabled = true
+default-policy = "deny"  # deny, allow (for gradual migration)
+audit-enabled = true
+
+# Authentication methods
+[security.authentication]
+methods = ["api_key", "certificate"]  # api_key, certificate, oauth2
+session-timeout = 3600                # Session timeout in seconds
+max-concurrent-sessions = 10          # Per-user session limit
+# API key authentication
+api-key-ttl = 2592000                 # 30 days in seconds
+# Certificate authentication
+certificate-validation = "strict"     # strict, permissive
+
+# Role-Based Access Control
+[security.rbac]
+enabled = true
+role-cache-ttl = 300  # Role resolution cache TTL (seconds)
+
+# Define roles and their permissions
+[[security.rbac.roles]]
+name = "admin"
+permissions = [
+    { resource = "admin", actions = ["read", "write"] },
+    { resource = "contract", actions = ["read", "write", "execute", "delete"] },
+    { resource = "delegate", actions = ["read", "write", "execute", "delete"] },
+    { resource = "network", actions = ["read", "write"] }
+]
+
+[[security.rbac.roles]]
+name = "developer"
+permissions = [
+    { resource = "contract", actions = ["read", "write", "execute"] },
+    { resource = "delegate", actions = ["read", "write", "execute"] },
+    { resource = "network", actions = ["read"] }
+]
+
+[[security.rbac.roles]]
+name = "read-only"
+permissions = [
+    { resource = "contract", actions = ["read"] },
+    { resource = "delegate", actions = ["read"] },
+    { resource = "network", actions = ["read"] }
+]
+
+# User-role assignments (can also be managed via API)
+[[security.rbac.users]]
+identity = "admin-key-1"
+roles = ["admin"]
+
+[[security.rbac.users]]
+identity = "dev-team@company.com"
+roles = ["developer"]
+
+# Audit configuration
+[security.audit]
+enabled = true
+log-level = "info"  # debug, info, warn, error
+log-format = "json" # json, text
+retention-days = 365
+# Export destinations
+destinations = [
+    "file:///var/log/freenet/audit.log",
+    # "syslog://192.168.1.100:514",
+    # "elasticsearch://https://logs.company.com:9200/freenet-audit"
+]
+
+# Events to audit
+events = [
+    "authentication",    # Login/logout events
+    "authorization",     # Permission checks
+    "data_access",      # Contract/delegate access
+    "network_access",   # Connection events
+    "administrative",   # Admin API usage
+    "configuration"     # Config changes
+]
+
+# Rate limiting and DDoS protection
+[security.rate-limiting]
+enabled = true
+per-client-request-rate = 100        # requests per second
+per-client-bandwidth = 10485760      # 10MB/s
+burst-capacity = 1000               # burst requests allowed
+# Adaptive rate limiting based on system load
+adaptive-enabled = true
+load-threshold = 0.8               # CPU load threshold for rate limiting
+
+# NEW: Contract Lifecycle Configuration (Phase 1)
+[contract-lifecycle]
+# Garbage collection settings
+gc-enabled = true
+gc-interval = 3600                 # GC run interval (seconds)
+gc-parallel-jobs = 4               # Parallel GC jobs
+
+# Storage quotas
+[contract-lifecycle.storage]
+max-total-size = 10737418240       # 10GB total storage
+max-contract-size = 104857600      # 100MB per contract
+max-contracts-per-client = 1000    # Per-client contract limit
+
+# Time-based policies (addressing AGENTS.md requirements)
+[contract-lifecycle.ttl]
+default-ttl = 2592000              # 30 days default TTL
+inactive-ttl = 604800              # 7 days for inactive contracts
+min-ttl = 86400                    # Minimum TTL (1 day)
+max-ttl = 31536000                 # Maximum TTL (1 year)
+
+# Usage-based policies
+[contract-lifecycle.usage]
+track-access = true
+unused-threshold = 604800          # Mark unused after 7 days
+delete-unused-after = 2592000      # Delete unused after 30 days
+
+# Contract versioning
+[contract-lifecycle.versioning]
+max-versions-per-contract = 10     # Keep max 10 versions
+auto-cleanup-old-versions = true
+
+# Exemption policies (time-bounded per AGENTS.md)
+[contract-lifecycle.exemptions]
+# All exemptions MUST have a maximum duration
+max-transient-duration = 86400     # Transient exemptions: 24 hours max
+max-pending-duration = 3600        # Pending exemptions: 1 hour max
+exemption-audit = true             # Audit exemption grants/expiry
+
+[secrets]
+transport-keypair-path = "~/.config/freenet/secrets/transport_keypair"
+nonce-path = "~/.config/freenet/secrets/nonce"
+cipher-path = "~/.config/freenet/secrets/cipher"
+
+# NEW: Certificate store for client authentication
+[secrets.certificates]
+ca-certificates-path = "~/.config/freenet/certificates/ca/"
+client-certificates-path = "~/.config/freenet/certificates/clients/"
+# Certificate validation settings
+verify-client-certificates = true
+require-client-certificates = false  # Set to true for mandatory cert auth
+
+# Phase 2 preparation - Monitoring configuration
+[monitoring]
+# Telemetry endpoints
+otlp-endpoint = "http://localhost:4317"
+jaeger-endpoint = "http://localhost:14268"
+# Metrics collection
+metrics-enabled = true
+detailed-metrics = false  # Enable detailed metrics (high cardinality)
+# Performance baseline tracking
+baseline-tracking = true
+regression-detection = true
+
+# Phase 2 preparation - Alert configuration
+[alerts]
+enabled = false  # Will be implemented in Phase 2
+webhook-url = "https://alerts.company.com/webhook"
+email-notifications = []
+escalation-timeout = 3600  # Escalate unhandled alerts after 1 hour

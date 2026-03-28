@@ -287,6 +287,16 @@ impl StateStorage for Pool {
             Err(_) => Err(SqlDbError::ContractNotFound),
         }
     }
+
+    async fn remove(&self, key: &ContractKey) -> Result<bool, Self::Error> {
+        let result = sqlx::query("DELETE FROM states WHERE contract = ?")
+            .bind(key.as_bytes())
+            .execute(&self.0)
+            .await?;
+        // Also remove hosting metadata
+        self.remove_hosting_metadata(key).await?;
+        Ok(result.rows_affected() > 0)
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

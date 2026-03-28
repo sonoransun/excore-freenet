@@ -344,6 +344,21 @@ impl WebSocketProxy {
                         subscribe: true,
                         ..
                     }) => Some(*contract.key().id()),
+                    ClientRequest::DelegateOp(
+                        freenet_stdlib::client_api::DelegateRequest::RegisterDelegate {
+                            ref delegate,
+                            ..
+                        },
+                    ) => {
+                        // Use the delegate key bytes as a pseudo ContractInstanceId
+                        // so the existing subscription machinery can deliver push notifications.
+                        let key_bytes: [u8; 32] = delegate
+                            .key()
+                            .bytes()
+                            .try_into()
+                            .expect("DelegateKey is always 32 bytes");
+                        Some(ContractInstanceId::new(key_bytes))
+                    }
                     ClientRequest::DelegateOp(_)
                     | ClientRequest::ContractOp(_)
                     | ClientRequest::Disconnect { .. }

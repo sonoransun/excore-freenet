@@ -776,6 +776,8 @@ mod tests {
                         inbound: vec![],
                     },
                     origin_contract: None,
+                    client_id: None,
+                    notification_channel: None,
                 },
             ),
             (

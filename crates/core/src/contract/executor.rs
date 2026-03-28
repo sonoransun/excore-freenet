@@ -96,6 +96,18 @@ pub(crate) const MAX_DELEGATE_CREATIONS_PER_CALL: u32 = 8;
 /// delegate store and secret store. Enforced via `CREATED_DELEGATES_COUNT` atomic counter.
 pub(crate) const MAX_CREATED_DELEGATES_PER_NODE: usize = 1024;
 
+/// Maximum number of app subscriber clients per delegate.
+/// Prevents unbounded memory growth from delegate notification fan-out.
+pub(crate) const MAX_APP_SUBSCRIBERS_PER_DELEGATE: usize = 128;
+
+/// Maximum total delegate app subscriptions a single client may hold across all delegates.
+/// Prevents a single client from spreading thin across many delegates to exhaust resources.
+pub(crate) const MAX_DELEGATE_SUBSCRIPTIONS_PER_CLIENT: usize = 50;
+
+/// Buffer size for delegate app subscriber notification channels.
+/// When full, notifications are dropped (lossy) rather than blocking the handler.
+pub(crate) const DELEGATE_APP_NOTIFICATION_CHANNEL_SIZE: usize = 64;
+
 pub(crate) type DelegateNotificationSender = mpsc::Sender<DelegateNotification>;
 pub(crate) type DelegateNotificationReceiver = mpsc::Receiver<DelegateNotification>;
 
@@ -805,6 +817,44 @@ pub(crate) trait ContractExecutor: Send + 'static {
     fn take_delegate_notification_rx(&mut self) -> Option<DelegateNotificationReceiver> {
         None
     }
+
+    /// Register a client as an app subscriber for a delegate.
+    ///
+    /// When the delegate produces `ApplicationMessage`s from contract notifications,
+    /// these messages are routed to all registered app subscribers. Returns `true`
+    /// if registration succeeded, `false` if a limit was exceeded.
+    ///
+    /// Default implementation is a no-op (for mock executors).
+    fn register_delegate_app_subscriber(
+        &self,
+        _delegate_key: &DelegateKey,
+        _client_id: ClientId,
+        _notification_ch: mpsc::Sender<HostResult>,
+    ) -> bool {
+        true
+    }
+
+    /// Remove a client's app subscription for a delegate.
+    ///
+    /// Default implementation is a no-op (for mock executors).
+    fn remove_delegate_app_subscriber(&self, _delegate_key: &DelegateKey, _client_id: ClientId) {}
+
+    /// Route `ApplicationMessage`s from a delegate to all registered app subscribers.
+    ///
+    /// Returns the number of clients the messages were sent to.
+    /// Default implementation is a no-op (for mock executors).
+    fn route_delegate_app_messages(
+        &self,
+        _delegate_key: &DelegateKey,
+        _messages: &[OutboundDelegateMsg],
+    ) -> usize {
+        0
+    }
+
+    /// Remove all delegate app subscriptions for a disconnected client.
+    ///
+    /// Default implementation is a no-op (for mock executors).
+    fn remove_client_delegate_subscriptions(&self, _client_id: ClientId) {}
 }
 
 /// Tracks contracts that have undergone corrupted-state recovery.
@@ -829,6 +879,14 @@ type SharedSummaries =
 
 // Per-client subscription counts for O(1) limit enforcement (used by RuntimePool).
 type SharedClientCounts = Arc<dashmap::DashMap<ClientId, usize>>;
+
+// Shared delegate app subscriber storage (used by RuntimePool).
+// Maps delegate key → list of (client_id, notification_channel).
+pub(crate) type SharedDelegateAppSubscribers =
+    Arc<dashmap::DashMap<DelegateKey, Vec<(ClientId, mpsc::Sender<HostResult>)>>>;
+
+// Per-client delegate subscription counts for O(1) limit enforcement (used by RuntimePool).
+pub(crate) type SharedDelegateClientCounts = Arc<dashmap::DashMap<ClientId, usize>>;
 
 /// Consumers of the executor are required to poll for new changes in order to be notified
 /// of changes or can alternatively use the notification channel.
@@ -885,6 +943,12 @@ pub struct Executor<R = Runtime, S: StateStorage = Storage> {
     /// Channel to send delegate notifications when subscribed contracts change state.
     /// Set when running in a pool via `set_delegate_notification_tx()`.
     delegate_notification_tx: Option<DelegateNotificationSender>,
+
+    /// Shared delegate app subscriber storage at pool level (when running in a pool).
+    /// Maps delegate key → list of (client_id, notification_channel).
+    shared_delegate_app_subscribers: Option<SharedDelegateAppSubscribers>,
+    /// Per-client delegate subscription counts at pool level for O(1) limit enforcement.
+    shared_delegate_client_counts: Option<SharedDelegateClientCounts>,
 }
 
 impl<R, S> Executor<R, S>
@@ -922,6 +986,8 @@ where
             summary_cache: LruCache::new(NonZeroUsize::new(1024).unwrap()),
             delta_cache: LruCache::new(NonZeroUsize::new(1024).unwrap()),
             delegate_notification_tx: None,
+            shared_delegate_app_subscribers: None,
+            shared_delegate_client_counts: None,
         })
     }
 
@@ -960,6 +1026,16 @@ where
     /// When set, `commit_state_update()` will send notifications to subscribed delegates.
     pub(crate) fn set_delegate_notification_tx(&mut self, tx: DelegateNotificationSender) {
         self.delegate_notification_tx = Some(tx);
+    }
+
+    /// Set shared delegate app subscriber storage for pool-based operation.
+    pub(crate) fn set_shared_delegate_app_subscribers(
+        &mut self,
+        subscribers: SharedDelegateAppSubscribers,
+        client_counts: SharedDelegateClientCounts,
+    ) {
+        self.shared_delegate_app_subscribers = Some(subscribers);
+        self.shared_delegate_client_counts = Some(client_counts);
     }
 
     /// Create all stores including StateStore. Used when creating a standalone executor.

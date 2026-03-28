@@ -1,3 +1,9 @@
+/// Authentication providers and client identity.
+pub mod auth;
+
+/// Authorization: roles, permissions, and access policy.
+pub mod authz;
+
 /// Clients events related logic and type definitions.
 pub(crate) mod client_events;
 
@@ -51,6 +57,21 @@ mod wasm_runtime;
 
 /// Deterministic simulation testing framework.
 pub mod simulation;
+
+/// AI/ML infrastructure for intelligent routing and congestion control.
+#[cfg(any(feature = "ml-routing", feature = "rl-congestion"))]
+pub mod ml;
+
+/// High-performance optimization infrastructure.
+#[cfg(feature = "performance-opt")]
+pub mod performance;
+
+/// Cryptographic infrastructure including post-quantum capabilities.
+pub mod crypto;
+
+/// Advanced consensus infrastructure including threshold cryptography and BFT.
+#[cfg(any(feature = "threshold-consensus", feature = "bft-async"))]
+pub mod consensus;
 
 /// Exports to build a running local node.
 pub mod local_node {
@@ -119,6 +140,48 @@ pub mod dev_tool {
     pub use crate::test_utils::reset_global_node_index;
     pub use crate::transport::reset_nonce_counter;
     pub use crate::transport::StreamId;
+
+    // Re-export ML infrastructure for development and testing
+    #[cfg(feature = "ml-routing")]
+    pub use crate::ml::{MLRouter, OperationType, RoutePrediction, RoutingFeatureExtractor};
+
+    #[cfg(feature = "rl-congestion")]
+    pub use crate::ml::{RLCongestionController, CongestionAction, CongestionFeatureExtractor};
+
+    #[cfg(any(feature = "ml-routing", feature = "rl-congestion"))]
+    pub use crate::ml::{MLConfig, Enhanced, FeatureVector, Prediction, ModelFactory};
+
+    // Re-export performance optimizations for development and testing
+    #[cfg(feature = "performance-opt")]
+    pub use crate::performance::{PerformanceManager, PerformanceConfig, PerformanceEnhanced};
+
+    #[cfg(feature = "performance-opt")]
+    pub use crate::performance::{IoUringManager, SimdCrypto, MemoryManager, BatchManager};
+
+    // Re-export cryptographic infrastructure for development and testing
+    pub use crate::crypto::{CryptoManager};
+
+    #[cfg(feature = "homomorphic-contracts")]
+    pub use crate::crypto::{
+        FHEContractExecutor, FHEEnhancer, FHEConfig, FHEParameterSet, FHEStats,
+        EncryptedState, EncryptedOperation, EncryptedExecutionResult,
+    };
+
+    // Re-export consensus infrastructure for development and testing
+    #[cfg(feature = "threshold-consensus")]
+    pub use crate::consensus::{
+        ThresholdConsensus, ThresholdEnhancer, ThresholdConfig,
+        ThresholdOperation, ThresholdStats, ParticipantRole,
+    };
+
+    #[cfg(feature = "bft-async")]
+    pub use crate::consensus::{
+        BFTConsensus, BFTEnhancer, BFTConfig,
+        BFTOperation, BFTStats,
+    };
+
+    #[cfg(feature = "quantum-safe")]
+    pub use crate::crypto::{PostQuantumTransport, PostQuantumConfig, ProtocolVersion};
 }
 
 /// Deadlock detection for parking_lot locks in test builds.

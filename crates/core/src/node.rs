@@ -61,7 +61,7 @@ pub use network_bridge::{reset_channel_id_counter, EventLoopExitReason, NetworkS
 
 use crate::topology::rate::Rate;
 use crate::transport::{TransportKeypair, TransportPublicKey};
-pub(crate) use op_state_manager::{OpManager, OpNotAvailable};
+pub(crate) use op_state_manager::{DurableOpKind, DurableOpRequest, OpManager, OpNotAvailable};
 
 mod network_bridge;
 
@@ -70,6 +70,7 @@ mod network_bridge;
 // tests compile the lib without cfg(test).
 pub use network_bridge::in_memory::{get_fault_injector, set_fault_injector, FaultInjectorState};
 pub(crate) mod background_task_monitor;
+pub(crate) mod maintenance;
 pub(crate) mod neighbor_hosting;
 pub(crate) mod network_status;
 mod op_state_manager;

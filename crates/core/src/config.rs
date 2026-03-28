@@ -644,6 +644,9 @@ impl ConfigArgs {
                 // environments to avoid flooding the collector with test data.
                 is_test_environment: self.id.is_some(),
             },
+            security: SecurityConfig::default(),
+            gc: crate::contract::lifecycle::GcConfig::default(),
+            maintenance: crate::node::maintenance::MaintenanceConfig::default(),
         };
 
         fs::create_dir_all(this.config_dir())?;
@@ -738,6 +741,15 @@ pub struct Config {
     /// Telemetry configuration
     #[serde(flatten)]
     pub telemetry: TelemetryConfig,
+    /// Security configuration (auth & authz).
+    #[serde(default)]
+    pub security: SecurityConfig,
+    /// Contract garbage collection configuration.
+    #[serde(default)]
+    pub gc: crate::contract::lifecycle::GcConfig,
+    /// Background maintenance configuration (seeding, storage verification, durable ops).
+    #[serde(default)]
+    pub maintenance: crate::node::maintenance::MaintenanceConfig,
 }
 
 /// Default max blocking threads: 2x CPU cores, clamped to 4-32.
@@ -1410,6 +1422,42 @@ impl Default for WebsocketApiConfig {
             allowed_hosts: Vec::new(),
         }
     }
+}
+
+/// Security configuration for authentication and authorization.
+///
+/// Defaults to permissive mode for backward compatibility. When `permissive`
+/// is `true`, unauthenticated clients receive the `User` role (matching
+/// pre-auth behavior). Set `permissive = false` to require authentication.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecurityConfig {
+    /// When `true`, unauthenticated requests are allowed with `User`-level
+    /// access. Set to `false` to require credentials on every request.
+    #[serde(default = "default_security_permissive")]
+    pub permissive: bool,
+
+    /// Whether the API key authentication provider is enabled.
+    #[serde(default = "default_api_keys_enabled")]
+    pub api_keys_enabled: bool,
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self {
+            permissive: default_security_permissive(),
+            api_keys_enabled: default_api_keys_enabled(),
+        }
+    }
+}
+
+#[inline]
+const fn default_security_permissive() -> bool {
+    true
+}
+
+#[inline]
+const fn default_api_keys_enabled() -> bool {
+    false
 }
 
 /// Default listening address: `::` (IPv6 dual-stack, accepts IPv4 via mapped addresses).

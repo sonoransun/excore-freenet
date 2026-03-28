@@ -18,8 +18,9 @@ pub struct ContractStore {
     /// ReDb storage for persistent index
     db: Storage,
 }
-// TODO: add functionality to delete old contracts which have not been used for a while
-//       to keep the total space used under a configured threshold
+// Contract GC and deletion are handled by the lifecycle module:
+// see crate::contract::lifecycle::gc for time-bounded GC policies
+// and crate::contract::lifecycle::deletion for explicit contract deletion.
 
 impl ContractStore {
     /// # Arguments

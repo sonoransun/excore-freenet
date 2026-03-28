@@ -111,6 +111,7 @@ impl HttpClientApi {
             )
             .merge(v1::routes(config.clone()))
             .merge(v2::routes(config))
+            .merge(crate::client_events::admin_endpoints::admin_router())
             .layer(Extension(origin_contracts.clone()))
             .layer(Extension(HttpClientApiRequest(proxy_request_sender)));
 

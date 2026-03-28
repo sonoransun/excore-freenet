@@ -767,6 +767,23 @@ impl StateStorage for ReDb {
             None => Ok(None),
         }
     }
+
+    async fn remove(&self, key: &ContractKey) -> Result<bool, Self::Error> {
+        let txn = self.0.begin_write()?;
+        let existed;
+        {
+            let mut state_tbl = txn.open_table(STATE_TABLE)?;
+            existed = state_tbl.remove(key.as_bytes())?.is_some();
+
+            let mut params_tbl = txn.open_table(CONTRACT_PARAMS_TABLE)?;
+            params_tbl.remove(key.as_bytes())?;
+
+            let mut meta_tbl = txn.open_table(HOSTING_METADATA_TABLE)?;
+            meta_tbl.remove(key.as_bytes())?;
+        }
+        txn.commit()?;
+        Ok(existed)
+    }
 }
 
 #[cfg(test)]

@@ -178,6 +178,12 @@ pub struct RuntimePool {
     /// `lookup_key`, `get_subscription_info`, `notify_subscription_error`,
     /// `remove_client` (read-only / no executor checkout).
     in_flight_contracts: HashMap<ContractKey, usize>,
+    /// Shared delegate app subscriber storage.
+    /// Maps delegate key → list of (client_id, notification_channel) for routing
+    /// ApplicationMessages produced from contract notification callbacks.
+    shared_delegate_app_subscribers: super::SharedDelegateAppSubscribers,
+    /// Per-client delegate subscription counts for O(1) limit enforcement.
+    shared_delegate_client_counts: super::SharedDelegateClientCounts,
 }
 
 impl RuntimePool {
@@ -225,6 +231,12 @@ impl RuntimePool {
         let shared_recovery_guard: super::CorruptedStateRecoveryGuard =
             Arc::new(std::sync::Mutex::new(HashSet::new()));
 
+        // Create shared delegate app subscriber storage
+        let shared_delegate_app_subscribers: super::SharedDelegateAppSubscribers =
+            Arc::new(DashMap::new());
+        let shared_delegate_client_counts: super::SharedDelegateClientCounts =
+            Arc::new(DashMap::new());
+
         // Create the first executor to obtain a backend engine, then share it
         // with all subsequent executors. All executors MUST share the same backend
         // engine because compiled modules store references tied to the compiling
@@ -247,6 +259,10 @@ impl RuntimePool {
         );
         first_executor.set_recovery_guard(shared_recovery_guard.clone());
         first_executor.set_delegate_notification_tx(delegate_notification_tx.clone());
+        first_executor.set_shared_delegate_app_subscribers(
+            shared_delegate_app_subscribers.clone(),
+            shared_delegate_client_counts.clone(),
+        );
         runtimes.push(Some(first_executor));
 
         for i in 1..pool_size_usize {
@@ -269,6 +285,10 @@ impl RuntimePool {
             );
             executor.set_recovery_guard(shared_recovery_guard.clone());
             executor.set_delegate_notification_tx(delegate_notification_tx.clone());
+            executor.set_shared_delegate_app_subscribers(
+                shared_delegate_app_subscribers.clone(),
+                shared_delegate_client_counts.clone(),
+            );
 
             runtimes.push(Some(executor));
 
@@ -300,6 +320,8 @@ impl RuntimePool {
             delegate_notification_tx,
             delegate_notification_rx: Some(delegate_notification_rx),
             in_flight_contracts: HashMap::new(),
+            shared_delegate_app_subscribers,
+            shared_delegate_client_counts,
         })
     }
 
@@ -457,6 +479,10 @@ impl RuntimePool {
         );
         executor.set_recovery_guard(self.shared_recovery_guard.clone());
         executor.set_delegate_notification_tx(self.delegate_notification_tx.clone());
+        executor.set_shared_delegate_app_subscribers(
+            self.shared_delegate_app_subscribers.clone(),
+            self.shared_delegate_client_counts.clone(),
+        );
 
         Ok(executor)
     }
@@ -735,6 +761,9 @@ impl ContractExecutor for RuntimePool {
                 "Cleaned up subscriptions for disconnected client"
             );
         }
+
+        // Also clean up delegate app subscriptions
+        self.remove_client_delegate_subscriptions(client_id);
     }
 
     async fn summarize_contract_state(
@@ -766,6 +795,160 @@ impl ContractExecutor for RuntimePool {
 
     fn take_delegate_notification_rx(&mut self) -> Option<super::DelegateNotificationReceiver> {
         self.delegate_notification_rx.take()
+    }
+
+    fn register_delegate_app_subscriber(
+        &self,
+        delegate_key: &DelegateKey,
+        client_id: ClientId,
+        notification_ch: tokio::sync::mpsc::Sender<HostResult>,
+    ) -> bool {
+        // Check per-client limit
+        let mut client_count = self
+            .shared_delegate_client_counts
+            .entry(client_id)
+            .or_insert(0);
+        if *client_count >= super::MAX_DELEGATE_SUBSCRIPTIONS_PER_CLIENT {
+            tracing::warn!(
+                client = %client_id,
+                delegate = %delegate_key,
+                limit = super::MAX_DELEGATE_SUBSCRIPTIONS_PER_CLIENT,
+                "Client exceeded max delegate app subscriptions"
+            );
+            return false;
+        }
+
+        // Check per-delegate limit and insert
+        let mut entry = self
+            .shared_delegate_app_subscribers
+            .entry(delegate_key.clone())
+            .or_default();
+        if entry.len() >= super::MAX_APP_SUBSCRIBERS_PER_DELEGATE {
+            tracing::warn!(
+                delegate = %delegate_key,
+                limit = super::MAX_APP_SUBSCRIBERS_PER_DELEGATE,
+                "Delegate exceeded max app subscribers"
+            );
+            return false;
+        }
+
+        // Avoid duplicate registration for same client
+        if entry.iter().any(|(id, _)| *id == client_id) {
+            tracing::debug!(
+                client = %client_id,
+                delegate = %delegate_key,
+                "Client already registered as delegate app subscriber"
+            );
+            return true;
+        }
+
+        entry.push((client_id, notification_ch));
+        *client_count += 1;
+
+        tracing::debug!(
+            client = %client_id,
+            delegate = %delegate_key,
+            total_subscribers = entry.len(),
+            "Registered delegate app subscriber"
+        );
+        true
+    }
+
+    fn remove_delegate_app_subscriber(&self, delegate_key: &DelegateKey, client_id: ClientId) {
+        if let Some(mut entry) = self.shared_delegate_app_subscribers.get_mut(delegate_key) {
+            if let Some(pos) = entry.iter().position(|(id, _)| *id == client_id) {
+                entry.remove(pos);
+                // Decrement per-client count
+                if let Some(mut count) = self.shared_delegate_client_counts.get_mut(&client_id) {
+                    *count = count.saturating_sub(1);
+                }
+                tracing::debug!(
+                    client = %client_id,
+                    delegate = %delegate_key,
+                    "Removed delegate app subscriber"
+                );
+            }
+        }
+        // Clean up empty entries
+        self.shared_delegate_app_subscribers
+            .retain(|_, subscribers| !subscribers.is_empty());
+    }
+
+    fn route_delegate_app_messages(
+        &self,
+        delegate_key: &DelegateKey,
+        messages: &[OutboundDelegateMsg],
+    ) -> usize {
+        let app_messages: Vec<_> = messages
+            .iter()
+            .filter(|m| matches!(m, OutboundDelegateMsg::ApplicationMessage(_)))
+            .collect();
+
+        if app_messages.is_empty() {
+            return 0;
+        }
+
+        let Some(subscribers) = self.shared_delegate_app_subscribers.get(delegate_key) else {
+            return 0;
+        };
+
+        let mut routed = 0;
+        for (client_id, ch) in subscribers.iter() {
+            let response = Ok(HostResponse::DelegateResponse {
+                key: delegate_key.clone(),
+                values: app_messages.iter().map(|m| (*m).clone()).collect(),
+            });
+            match ch.try_send(response) {
+                Ok(()) => {
+                    routed += 1;
+                }
+                Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                    tracing::warn!(
+                        client = %client_id,
+                        delegate = %delegate_key,
+                        "Delegate app notification channel full — message dropped"
+                    );
+                }
+                Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                    tracing::debug!(
+                        client = %client_id,
+                        delegate = %delegate_key,
+                        "Delegate app notification channel closed — client disconnected"
+                    );
+                }
+            }
+        }
+
+        // Clean up closed channels after routing
+        if routed < subscribers.len() {
+            drop(subscribers);
+            if let Some(mut entry) = self.shared_delegate_app_subscribers.get_mut(delegate_key) {
+                entry.retain(|(_, ch)| !ch.is_closed());
+            }
+        }
+
+        routed
+    }
+
+    fn remove_client_delegate_subscriptions(&self, client_id: ClientId) {
+        let mut removed = 0usize;
+        self.shared_delegate_app_subscribers
+            .retain(|_delegate, subscribers| {
+                if let Some(pos) = subscribers.iter().position(|(id, _)| *id == client_id) {
+                    subscribers.remove(pos);
+                    removed += 1;
+                }
+                !subscribers.is_empty()
+            });
+
+        if removed > 0 {
+            self.shared_delegate_client_counts.remove(&client_id);
+            tracing::info!(
+                client = %client_id,
+                removed_delegate_subscriptions = removed,
+                "Cleaned up delegate app subscriptions for disconnected client"
+            );
+        }
     }
 }
 

@@ -10,6 +10,7 @@ use freenet_stdlib::prelude::*;
 mod executor;
 mod fair_queue;
 mod handler;
+pub(crate) mod lifecycle;
 pub mod storages;
 
 pub(crate) use executor::{
@@ -703,22 +704,37 @@ async fn handle_delegate_notification<CH>(
     let outbound =
         handle_delegate_with_contract_requests(contract_handler, req, None, &delegate_key).await;
 
-    // TODO: Route outbound ApplicationMessages to subscribed apps #3275
+    // Route outbound ApplicationMessages to subscribed apps.
     // handle_delegate_with_contract_requests already processes contract requests
     // (GET/PUT/UPDATE/SUBSCRIBE) internally. The remaining outbound messages are
-    // ApplicationMessages meant for connected apps, but notification-driven
-    // invocations have no originating client connection to route them to.
-    // When delegate-to-app notification routing is implemented, these should be
-    // forwarded to all apps registered with this delegate.
+    // ApplicationMessages meant for connected apps.
+    let has_app_messages = outbound
+        .iter()
+        .any(|m| matches!(m, OutboundDelegateMsg::ApplicationMessage(_)));
+
+    if has_app_messages {
+        let routed = contract_handler
+            .executor()
+            .route_delegate_app_messages(&delegate_key, &outbound);
+        if routed > 0 {
+            tracing::debug!(
+                delegate = %delegate_key,
+                routed_to = routed,
+                "Routed delegate ApplicationMessages to subscribed clients"
+            );
+        } else {
+            tracing::debug!(
+                delegate = %delegate_key,
+                "Delegate produced ApplicationMessages but no clients are subscribed"
+            );
+        }
+    }
+
+    // Log any unexpected non-ApplicationMessage outbound messages
     for msg in &outbound {
         match msg {
-            OutboundDelegateMsg::ApplicationMessage(app_msg) => {
-                tracing::warn!(
-                    delegate = %delegate_key,
-                    payload_len = app_msg.payload.len(),
-                    "Delegate produced ApplicationMessage from contract notification \
-                     but no client routing is available yet — message dropped"
-                );
+            OutboundDelegateMsg::ApplicationMessage(_) => {
+                // Already handled above
             }
             OutboundDelegateMsg::RequestUserInput(_)
             | OutboundDelegateMsg::ContextUpdated(_)
@@ -1056,8 +1072,14 @@ where
         ContractHandlerEvent::DelegateRequest {
             req,
             origin_contract,
+            client_id,
+            notification_channel,
         } => {
             let delegate_key = req.key().clone();
+            let is_register = matches!(
+                req,
+                freenet_stdlib::client_api::DelegateRequest::RegisterDelegate { .. }
+            );
             tracing::debug!(
                 delegate_key = %delegate_key,
                 ?origin_contract,
@@ -1072,6 +1094,23 @@ where
                 &delegate_key,
             )
             .await;
+
+            // Register the client as a delegate app subscriber on successful RegisterDelegate.
+            // This allows routing ApplicationMessages from contract notifications to the client.
+            if is_register {
+                if let (Some(cli_id), Some(ch)) = (client_id, notification_channel) {
+                    let registered = contract_handler
+                        .executor()
+                        .register_delegate_app_subscriber(&delegate_key, cli_id, ch);
+                    if !registered {
+                        tracing::warn!(
+                            client = %cli_id,
+                            delegate = %delegate_key,
+                            "Failed to register delegate app subscriber (limit exceeded)"
+                        );
+                    }
+                }
+            }
 
             // Send response back to caller. If the caller disconnected, the response channel
             // may be dropped. This is not fatal - the delegate has already been processed.

@@ -630,6 +630,36 @@ impl HostingManager {
         self.hosting_cache.read().len()
     }
 
+    /// Explicitly remove a contract from the hosting cache and its persisted metadata.
+    /// Returns bytes freed from the cache.
+    pub fn remove_hosted_contract(&self, key: &ContractKey) -> u64 {
+        let bytes_freed = self.hosting_cache.write().remove(key);
+
+        // Clean up persisted metadata
+        if bytes_freed > 0 {
+            if let Some(storage) = self.storage.read().as_ref() {
+                #[cfg(feature = "redb")]
+                {
+                    if let Err(e) = storage.remove_hosting_metadata(key) {
+                        tracing::warn!(
+                            contract = %key,
+                            error = %e,
+                            "Failed to remove hosting metadata during explicit deletion"
+                        );
+                    }
+                }
+                #[cfg(all(feature = "sqlite", not(feature = "redb")))]
+                {
+                    tracing::debug!(
+                        contract = %key,
+                        "Deleted contract - sqlite hosting metadata cleanup deferred"
+                    );
+                }
+            }
+        }
+        bytes_freed
+    }
+
     /// Check if we should continue hosting a contract.
     ///
     /// Returns true if:

@@ -209,6 +209,18 @@ impl<T: TimeSource> HostingCache<T> {
         }
     }
 
+    /// Explicitly remove a contract from the cache.
+    /// Returns the bytes freed, or 0 if the contract was not cached.
+    pub fn remove(&mut self, key: &ContractKey) -> u64 {
+        if let Some(removed) = self.contracts.remove(key) {
+            self.current_bytes = self.current_bytes.saturating_sub(removed.size_bytes);
+            self.lru_order.retain(|k| k != key);
+            removed.size_bytes
+        } else {
+            0
+        }
+    }
+
     /// Check if a contract is in the cache.
     pub fn contains(&self, key: &ContractKey) -> bool {
         self.contracts.contains_key(key)
@@ -704,5 +716,35 @@ mod tests {
         assert!(keys.contains(&key1));
         assert!(keys.contains(&key2));
         assert!(keys.contains(&key3));
+    }
+
+    #[test]
+    fn test_explicit_remove() {
+        let (mut cache, _) = make_cache(1000, Duration::from_secs(60));
+        let key1 = make_key(1);
+        let key2 = make_key(2);
+
+        cache.record_access(key1, 100, AccessType::Get);
+        cache.record_access(key2, 200, AccessType::Put);
+        assert_eq!(cache.len(), 2);
+        assert_eq!(cache.current_bytes(), 300);
+
+        // Remove key1
+        let freed = cache.remove(&key1);
+        assert_eq!(freed, 100);
+        assert!(!cache.contains(&key1));
+        assert!(cache.contains(&key2));
+        assert_eq!(cache.len(), 1);
+        assert_eq!(cache.current_bytes(), 200);
+    }
+
+    #[test]
+    fn test_remove_nonexistent() {
+        let (mut cache, _) = make_cache(1000, Duration::from_secs(60));
+        let key = make_key(1);
+
+        let freed = cache.remove(&key);
+        assert_eq!(freed, 0);
+        assert!(cache.is_empty());
     }
 }

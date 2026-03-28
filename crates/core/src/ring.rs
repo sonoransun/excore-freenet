@@ -1616,6 +1616,14 @@ impl Ring {
         self.hosting_manager.hosting_contracts_count()
     }
 
+    /// Evict a contract from the hosting cache and remove its persisted metadata.
+    ///
+    /// Used by the storage verification maintenance task when a contract's local state
+    /// is found to be persistently corrupted or missing. Returns the bytes freed.
+    pub fn evict_hosted_contract(&self, key: &ContractKey) -> u64 {
+        self.hosting_manager.remove_hosted_contract(key)
+    }
+
     /// Get subscription state for all contracts (for telemetry).
     ///
     /// Returns: (contract, has_client_subscription, is_active_subscription, expires_at)

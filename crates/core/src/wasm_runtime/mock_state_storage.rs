@@ -285,6 +285,13 @@ impl StateStorage for MockStateStorage {
 
         Ok(inner.params.get(key).cloned())
     }
+
+    async fn remove(&self, key: &ContractKey) -> Result<bool, Self::Error> {
+        let mut inner = self.inner.lock().unwrap();
+        let existed = inner.states.remove(key).is_some();
+        inner.params.remove(key);
+        Ok(existed)
+    }
 }
 
 #[cfg(test)]

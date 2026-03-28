@@ -68,6 +68,10 @@ pub trait StateStorage {
         &'a self,
         key: &'a ContractKey,
     ) -> impl Future<Output = Result<Option<Parameters<'static>>, Self::Error>> + Send + 'a;
+
+    /// Remove state and params for a contract. Used by GC and explicit deletion.
+    /// Returns true if the contract existed, false if it was already absent.
+    fn remove(&self, key: &ContractKey) -> impl Future<Output = Result<bool, Self::Error>> + Send;
 }
 
 /// StateStore wraps a persistent storage backend with an optional in-memory cache.
@@ -228,6 +232,17 @@ where
             .await
             .map_err(|e| StateStoreError::Any(e.into()))?;
         Ok(())
+    }
+
+    /// Remove a contract's state, params, and cache entry.
+    /// Returns true if the contract existed in persistent storage.
+    pub async fn remove(&self, key: &ContractKey) -> Result<bool, StateStoreError> {
+        // Remove from cache first
+        if let Some(cache) = &self.state_mem_cache {
+            cache.invalidate(key);
+        }
+        // Remove from persistent storage
+        Ok(self.store.remove(key).await.map_err(Into::into)?)
     }
 
     /// Get a reference to the underlying storage backend.
@@ -782,6 +797,68 @@ mod tests {
         // ensure_params is idempotent — calling it again doesn't break anything
         store.ensure_params(key, params.clone()).await.unwrap();
         assert_eq!(store.get_params(&key).await.unwrap(), Some(params));
+    }
+
+    // ============ Remove Tests ============
+
+    /// Test that remove deletes state and params from storage.
+    #[tokio::test]
+    async fn test_state_store_remove_existing() {
+        let mock_storage = MockStateStorage::new();
+        let mut store = StateStore::new(mock_storage, 10_000).unwrap();
+
+        let key = make_test_key();
+        let state = make_test_state(&[1, 2, 3]);
+        let params = Parameters::from(vec![10, 20, 30]);
+
+        store.store(key, state, params).await.unwrap();
+
+        // Remove should return true (existed)
+        let existed = store.remove(&key).await.unwrap();
+        assert!(existed, "remove() should return true for existing contract");
+
+        // State should no longer be retrievable
+        let result = store.get(&key).await;
+        assert!(
+            matches!(result, Err(StateStoreError::MissingContract(_))),
+            "State should be gone after remove"
+        );
+    }
+
+    /// Test that removing a non-existent contract returns false.
+    #[tokio::test]
+    async fn test_state_store_remove_nonexistent() {
+        let mock_storage = MockStateStorage::new();
+        let store = StateStore::new(mock_storage, 10_000).unwrap();
+
+        let key = make_test_key();
+        let existed = store.remove(&key).await.unwrap();
+        assert!(
+            !existed,
+            "remove() should return false for non-existent contract"
+        );
+    }
+
+    /// Test that remove clears the cache entry.
+    #[tokio::test]
+    async fn test_state_store_remove_clears_cache() {
+        let mock_storage = MockStateStorage::new();
+        let mut store = StateStore::new(mock_storage.clone(), 10_000).unwrap();
+
+        let key = make_test_key();
+        let state = make_test_state(&[1, 2, 3]);
+        let params = Parameters::from(vec![10, 20, 30]);
+
+        // Store and verify it's cached
+        store.store(key, state.clone(), params).await.unwrap();
+        assert_eq!(store.get(&key).await.unwrap(), state);
+
+        // Remove
+        store.remove(&key).await.unwrap();
+
+        // Even in uncached mode, the contract should be gone
+        let result = store.get(&key).await;
+        assert!(matches!(result, Err(StateStoreError::MissingContract(_))));
     }
 
     /// Test that ensure_params works for a contract that has state but no params.
